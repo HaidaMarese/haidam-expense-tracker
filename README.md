@@ -25,15 +25,17 @@ python app.py    # -> http://127.0.0.1:5001
 ### Server API
 cd server
 npm i
-# server/.env
-# PORT=5000
-# AI_SERVICE_URL=http://127.0.0.1:5001
-# MONGO_URI=<your MongoDB Atlas URI>
-# AWS_REGION=us-east-1
-# S3_BUCKET=<your-s3-bucket>
-# AWS_ACCESS_KEY_ID=<never commit>
-# AWS_SECRET_ACCESS_KEY=<never commit>
-npm run dev     # -> http://127.0.0.1:5000
+
+## server/.env
+- PORT=5000
+-  AI_SERVICE_URL=http://127.0.0.1:5001
+- MONGO_URI=<your MongoDB Atlas URI>
+- AWS_REGION=us-east-1
+-  S3_BUCKET=<your-s3-bucket>
+-  AWS_ACCESS_KEY_ID=<never commit>
+-  AWS_SECRET_ACCESS_KEY=<never commit>
+- npm run dev
+ -> http://127.0.0.1:5000
 
 ### Client 
 cd client
