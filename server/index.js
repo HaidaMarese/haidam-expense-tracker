@@ -6,25 +6,38 @@ import mongoose from "mongoose";
 import multer from "multer";
 import FormData from "form-data";
 
-// AWS S3 presigned POST
 import { S3Client } from "@aws-sdk/client-s3";
 import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
 
 dotenv.config();
 
-// --- AWS / S3 setup ---
 const s3 = new S3Client({ region: process.env.AWS_REGION });
 const S3_BUCKET = process.env.S3_BUCKET;
 
 if (!process.env.AWS_REGION) console.warn("AWS_REGION not set");
 if (!S3_BUCKET) console.warn("S3_BUCKET not set");
 
-// --- Express app ---
 const app = express();
-app.use(cors({ origin: true, credentials: true })); // allow dev frontends
-app.use(express.json()); // parse JSON bodies
 
-// --- Env vars ---
+const DEFAULT_ALLOWED = [
+    "https://hexpense-tracker.netlify.app",
+    "http://localhost:5173",
+];
+
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || DEFAULT_ALLOWED.join(","))
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+app.use(
+    cors({
+        origin: allowedOrigins,
+        credentials: true,
+    })
+);
+
+app.use(express.json());
+
 const {
     PORT = 5000,
     HOST = "0.0.0.0",
@@ -32,7 +45,7 @@ const {
     MONGO_URI,
 } = process.env;
 
-// --- MongoDB (optional) ---
+
 if (MONGO_URI) {
     mongoose
         .connect(MONGO_URI)
@@ -42,7 +55,6 @@ if (MONGO_URI) {
     console.warn("No MONGO_URI set — API will run but won't persist data.");
 }
 
-// --- Mongoose model ---
 const ExpenseSchema = new mongoose.Schema(
     {
         userId: String,
@@ -64,12 +76,10 @@ const ExpenseSchema = new mongoose.Schema(
 const Expense =
     mongoose.models.Expense || mongoose.model("Expense", ExpenseSchema);
 
-// --- tiny health check (helps debugging) ---
 app.get("/api/health", (_req, res) =>
     res.json({ ok: true, time: new Date().toISOString() })
 );
 
-// --- super basic mock auth for local dev ---
 app.post("/api/auth/register", (req, res) => {
     const { username, email, password } = req.body || {};
     if (!username || !email || !password) {
@@ -93,16 +103,14 @@ app.get("/api/auth/me", (_req, res) =>
     res.json({ user: { username: "student", email: "student@example.com" } })
 );
 
-// quick root
+
 app.get("/", (_req, res) => res.send("Expense API OK"));
 
-// --- Multer (in-memory) for direct uploads to API ---
 const upload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+    limits: { fileSize: 10 * 1024 * 1024 },
 });
 
-// Route: direct upload -> OCR service -> save doc
 app.post("/api/receipt", upload.single("file"), async (req, res) => {
     try {
         if (!req.file) {
@@ -111,14 +119,12 @@ app.post("/api/receipt", upload.single("file"), async (req, res) => {
                 .json({ error: "file required (multipart/form-data, field 'file')" });
         }
 
-        // build multipart body to send to OCR microservice
         const form = new FormData();
         form.append("file", req.file.buffer, {
             filename: req.file.originalname,
             contentType: req.file.mimetype,
         });
 
-        // send to OCR service
         const ocr = await axios.post(`${AI_SERVICE_URL}/ocr`, form, {
             headers: form.getHeaders(),
             maxContentLength: Infinity,
@@ -126,7 +132,6 @@ app.post("/api/receipt", upload.single("file"), async (req, res) => {
             timeout: 60_000,
         });
 
-        // normalize result
         const data = ocr.data || {};
         const doc = {
             merchant: data.merchant || "Unknown",
@@ -145,7 +150,7 @@ app.post("/api/receipt", upload.single("file"), async (req, res) => {
             status: "processed",
         };
 
-        // save to DB if available
+       
         const saved = MONGO_URI ? await Expense.create(doc) : doc;
         res.json(saved.toObject?.() ?? saved);
     } catch (e) {
@@ -158,7 +163,6 @@ app.post("/api/receipt", upload.single("file"), async (req, res) => {
     }
 });
 
-// Route: presign POST for uploading directly to S3 from browser
 app.post("/api/receipt/presign", async (req, res) => {
     try {
         if (!S3_BUCKET) return res.status(500).json({ error: "S3_BUCKET not set" });
@@ -168,21 +172,19 @@ app.post("/api/receipt/presign", async (req, res) => {
             return res.status(400).json({ error: "fileName and mime required" });
         }
 
-        // sanitize file name and build a unique key
         const safe = String(fileName).replace(/[^\w.\-]/g, "_");
         const key = `uploads/${Date.now()}-${Math.random()
             .toString(36)
             .slice(2, 8)}-${safe}`;
 
-        // presign policy
         const presigned = await createPresignedPost(s3, {
             Bucket: S3_BUCKET,
             Key: key,
             Conditions: [
                 ["eq", "$Content-Type", mime],
-                ["content-length-range", 0, 10 * 1024 * 1024], // up to 10MB
+                ["content-length-range", 0, 10 * 1024 * 1024],
             ],
-            Expires: 60, // seconds
+            Expires: 60,
             Fields: { "Content-Type": mime },
         });
 
@@ -193,7 +195,7 @@ app.post("/api/receipt/presign", async (req, res) => {
     }
 });
 
-// Route: confirm after S3 upload 
+
 app.post("/api/receipt/confirm", async (req, res) => {
     try {
         const { key, mime, size } = req.body || {};
@@ -221,7 +223,6 @@ app.post("/api/receipt/confirm", async (req, res) => {
     }
 });
 
-// List expenses (latest first)
 app.get("/api/expenses", async (_req, res) => {
     const list = MONGO_URI
         ? await Expense.find().sort({ createdAt: -1 }).limit(200)
@@ -229,7 +230,6 @@ app.get("/api/expenses", async (_req, res) => {
     res.json(list);
 });
 
-// Summary by category
 app.get("/api/summary", async (_req, res) => {
     if (!MONGO_URI) return res.json([]);
     const agg = await Expense.aggregate([
@@ -240,7 +240,6 @@ app.get("/api/summary", async (_req, res) => {
     res.json(agg);
 });
 
-// 404 for anything else
 app.use((_req, res) => res.status(404).json({ error: "Not found" }));
 
 // --- Start server ---

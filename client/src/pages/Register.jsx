@@ -16,7 +16,7 @@ function Register() {
     setErr("");
     setLoading(true);
     try {
-      // token, user  from our mock API
+     
       const data = await api.register(form);
       localStorage.setItem("token", data.token);
       localStorage.setItem("user", JSON.stringify(data.user));
