@@ -45,7 +45,6 @@ const {
     MONGO_URI,
 } = process.env;
 
-
 if (MONGO_URI) {
     mongoose
         .connect(MONGO_URI)
@@ -83,7 +82,9 @@ app.get("/api/health", (_req, res) =>
 app.post("/api/auth/register", (req, res) => {
     const { username, email, password } = req.body || {};
     if (!username || !email || !password) {
-        return res.status(400).json({ error: "username, email, password required" });
+        return res
+            .status(400)
+            .json({ error: "username, email, password required" });
     }
     res.json({ token: "dev-token", user: { username, email } });
 });
@@ -102,7 +103,6 @@ app.post("/api/auth/login", (req, res) => {
 app.get("/api/auth/me", (_req, res) =>
     res.json({ user: { username: "student", email: "student@example.com" } })
 );
-
 
 app.get("/", (_req, res) => res.send("Expense API OK"));
 
@@ -150,7 +150,6 @@ app.post("/api/receipt", upload.single("file"), async (req, res) => {
             status: "processed",
         };
 
-       
         const saved = MONGO_URI ? await Expense.create(doc) : doc;
         res.json(saved.toObject?.() ?? saved);
     } catch (e) {
@@ -195,24 +194,44 @@ app.post("/api/receipt/presign", async (req, res) => {
     }
 });
 
-
 app.post("/api/receipt/confirm", async (req, res) => {
     try {
         const { key, mime, size } = req.body || {};
         if (!key) return res.status(400).json({ error: "key required" });
 
+        let parsed = {};
+        try {
+            const ocr = await axios.post(
+                `${AI_SERVICE_URL}/ocr`,
+                { s3_bucket: S3_BUCKET, s3_key: key },
+                { timeout: 60_000 }
+            );
+            parsed = ocr.data || {};
+        } catch (e) {
+            console.error(
+                "OCR call failed, saving stub:",
+                e?.response?.data || e.message
+            );
+        }
+
         const doc = {
-            merchant: "Unknown",
-            total: 0,
-            currency: "USD",
-            date: new Date(),
-            category: "Other",
-            items: [],
+            merchant: parsed.merchant || "Unknown",
+            total: Number(parsed.total || 0),
+            currency: parsed.currency || "USD",
+            date: parsed.date ? new Date(parsed.date) : new Date(),
+            category: parsed.category || "Other",
+            items: (parsed.items || []).map((x) => ({
+                desc: x.desc,
+                amount: Number(x.amount || 0),
+                category: x.category,
+            })),
+            tips: parsed.tips || [],
+
             s3Key: key,
             mime,
             size: Number(size || 0),
+
             status: "processed",
-            tips: [],
         };
 
         const saved = MONGO_URI ? await Expense.create(doc) : doc;
@@ -222,6 +241,7 @@ app.post("/api/receipt/confirm", async (req, res) => {
         res.status(500).json({ error: e.message || "confirm failed" });
     }
 });
+
 
 app.get("/api/expenses", async (_req, res) => {
     const list = MONGO_URI
@@ -240,9 +260,10 @@ app.get("/api/summary", async (_req, res) => {
     res.json(agg);
 });
 
+
 app.use((_req, res) => res.status(404).json({ error: "Not found" }));
 
-// --- Start server ---
+
 app.listen(PORT, HOST, () => {
     console.log(
         `Server running at http://localhost:${PORT}/ (S3 bucket: ${S3_BUCKET || "unset"})`
