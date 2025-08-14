@@ -76,6 +76,8 @@ npm run dev     # -> http://127.0.0.1:5173
 
 . Never commit .env or secrets. Rotate keys if they were exposed.
 
+## Demo Live : https://hexpense-tracker.netlify.app/
+
 ## Author 
 
 **Haida Makouangou** — UNC-Charlotte- CS -Senior Student-Per Scholas- Full Stack (MERN)
